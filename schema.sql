@@ -19,9 +19,13 @@ CREATE TABLE IF NOT EXISTS accounts (
   name            TEXT NOT NULL UNIQUE,              -- display name / login key
   pin_hash        TEXT NOT NULL,                     -- bcrypt hash
   currency        TEXT NOT NULL DEFAULT 'OStar',     -- preferred display currency
-  cash_usd        DOUBLE PRECISION NOT NULL DEFAULT 50000.0,
+  cash_usd        DOUBLE PRECISION NOT NULL DEFAULT 665653.9, -- 5 Dracos (free tier)
+  tier            TEXT NOT NULL DEFAULT 'free',      -- 'free' | 'paid' (Stripe upgrade)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add tier column to existing deployments (idempotent)
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
 
 -- Long positions
 CREATE TABLE IF NOT EXISTS holdings (

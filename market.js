@@ -113,7 +113,9 @@ const RAW_COMPANIES = [
   { ticker:'IGNS', name:'Igoine National Shipping',     section:'Wider Continent', sector:'Shipping', region:'Igoine', currency:'Jools', price:62_000, shares:3_500_000, vol:0.016, spreadPct:0.42, dividendYield:0.019, desc:'State-linked cargo and tanker fleet' },
 ];
 
-const STARTING_CASH = 50_000; // O$ (internal USD equivalent)
+// Free tier: 5 Dracos (stored internally as USD equivalent)
+// 1 Draco = 1 kg gold = GOLD_KG_USD. Paid tier is granted O$50,000 via Stripe.
+const STARTING_CASH = 5 * GOLD_KG_USD; // ≈ 665,654 USD (5 Dracos)
 
 /** Assign simulation parameters and build the initial state object. */
 function buildInitialState() {
@@ -399,13 +401,3 @@ module.exports = {
   bidPrice,
   askPrice,
   usdValue,
-  usdBid,
-  usdAsk,
-  marketCapUsd,
-  buildInitialState,
-  advanceTick,
-  updateIndex,
-  runAccountMaintenance,
-  isMarketOpen,
-  nextOpenLabel,
-};

@@ -40,8 +40,8 @@ router.post('/login', async (req, res) => {
       // New account — create it
       const pinHash = await bcrypt.hash(pin, BCRYPT_ROUNDS);
       const { rows: created } = await db.query(
-        `INSERT INTO accounts (name, pin_hash, currency, cash_usd)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO accounts (name, pin_hash, currency, cash_usd, tier)
+         VALUES ($1, $2, $3, $4, 'free')
          RETURNING *`,
         [name, pinHash, currency, STARTING_CASH]
       );
@@ -76,7 +76,7 @@ router.get('/account', requireAuth, async (req, res) => {
 
   try {
     const { rows: [acc] } = await db.query(
-      'SELECT id, name, currency, cash_usd, created_at FROM accounts WHERE id = $1',
+      'SELECT id, name, currency, cash_usd, tier, created_at FROM accounts WHERE id = $1',
       [accountId]
     );
     if (!acc) return res.status(404).json({ error: 'Account not found.' });
@@ -116,6 +116,7 @@ router.get('/account', requireAuth, async (req, res) => {
       name:       acc.name,
       currency:   acc.currency,
       cashUsd:    acc.cash_usd,
+      tier:       acc.tier || 'free',
       createdAt:  acc.created_at,
       holdings,
       shorts,
@@ -196,8 +197,4 @@ router.get('/leaderboard', async (_req, res) => {
     board.sort((a, b) => b.netWorthUsd - a.netWorthUsd);
     res.json(board.slice(0, 10));
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
+    res.status(500).json({
