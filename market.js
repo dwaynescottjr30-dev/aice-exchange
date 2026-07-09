@@ -401,3 +401,13 @@ module.exports = {
   bidPrice,
   askPrice,
   usdValue,
+  usdBid,
+  usdAsk,
+  marketCapUsd,
+  buildInitialState,
+  advanceTick,
+  updateIndex,
+  runAccountMaintenance,
+  isMarketOpen,
+  nextOpenLabel,
+};

@@ -197,4 +197,8 @@ router.get('/leaderboard', async (_req, res) => {
     board.sort((a, b) => b.netWorthUsd - a.netWorthUsd);
     res.json(board.slice(0, 10));
   } catch (err) {
-    res.status(500).json({
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
