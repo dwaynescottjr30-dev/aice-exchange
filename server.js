@@ -7,6 +7,9 @@ const helmet     = require('helmet');
 const cors       = require('cors');
 const rateLimit  = require('express-rate-limit');
 
+const fs                    = require('fs');
+const path                  = require('path');
+const db                    = require('./db');
 const { loadState }        = require('./stateStore');
 const { sessionMiddleware } = require('./auth');
 const scheduler             = require('./scheduler');
@@ -72,6 +75,11 @@ app.use((err, _req, res, _next) => {
 // ─────────────────────────────────────────────
 (async () => {
   try {
+    // Auto-migrate: run schema.sql on every startup (all statements are IF NOT EXISTS)
+    const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+    await db.query(schema);
+    console.log('[server] schema applied');
+
     await loadState();
     scheduler.start();
 
