@@ -27,6 +27,9 @@ function getStripe() {
 }
 
 const UPGRADE_PRICE_CENTS = 100; // $1.00
+const GOLD_KG_USD = 133130.78;
+const PAID_TIER_DRACOS = 500;
+const PAID_TIER_USD = PAID_TIER_DRACOS * GOLD_KG_USD; // ≈ 66,565,390 (500 Dracos)
 
 // ── Create Checkout session ──────────────────────────────────────────────────
 router.post('/create-session', requireAuth, async (req, res) => {
@@ -58,7 +61,7 @@ router.post('/create-session', requireAuth, async (req, res) => {
           unit_amount: UPGRADE_PRICE_CENTS,
           product_data: {
             name: 'AICE Standard Broker Account',
-            description: 'Upgrade from 5 Dracos free tier to O$50,000 trading capital',
+            description: 'Upgrade from 5 Dracos free tier to 500 ◈ Dracos trading capital',
           },
         },
         quantity: 1,
@@ -104,12 +107,12 @@ router.post('/verify', requireAuth, async (req, res) => {
 
     // Upgrade — idempotent ON CONFLICT style via simple check
     await db.query(
-      `UPDATE accounts SET tier = 'paid', cash_usd = 50000.0 WHERE id = $1 AND tier = 'free'`,
-      [accountId]
+      `UPDATE accounts SET tier = 'paid', cash_usd = $2 WHERE id = $1 AND tier = 'free'`,
+      [accountId, PAID_TIER_USD]
     );
 
-    console.log(`[payment/verify] Account ${accountId} upgraded to paid tier`);
-    res.json({ ok: true, tier: 'paid', cashUsd: 50000 });
+    console.log(`[payment/verify] Account ${accountId} upgraded to paid tier (${PAID_TIER_DRACOS} Dracos)`);
+    res.json({ ok: true, tier: 'paid', cashUsd: PAID_TIER_USD, cashDracos: PAID_TIER_DRACOS });
   } catch (err) {
     console.error('[payment/verify]', err.message);
     res.status(500).json({ error: err.message });
