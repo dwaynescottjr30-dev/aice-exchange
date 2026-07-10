@@ -4,20 +4,19 @@
  * routes/payment.js
  *
  * POST /api/payment/create-session  — create a Stripe Checkout session ($1 upgrade)
- * POST /api/payment/webhook         — Stripe webhook (marks account as paid, sets O$50,000)
+ * POST /api/payment/verify          — verify session after Stripe redirect, upgrade account
  *
  * Environment variables required (add in Railway → Variables):
- *   STRIPE_SECRET_KEY        sk_live_... or sk_test_...
- *   STRIPE_WEBHOOK_SECRET    whsec_...  (from Stripe Dashboard → Webhooks)
+ *   STRIPE_SECRET_KEY   sk_live_... or sk_test_...
  *
- * Stripe Checkout success → redirects to exchange.html?upgraded=1
+ * No webhook needed — we verify the session server-side on redirect.
  */
 
 const router  = require('express').Router();
 const db      = require('../db');
 const { requireAuth } = require('../auth');
 
-// Lazy-initialise Stripe so the server still boots without the key (shows a helpful error instead)
+// Lazy-initialise Stripe so the server still boots without the key
 let _stripe = null;
 function getStripe() {
   if (_stripe) return _stripe;
@@ -27,19 +26,19 @@ function getStripe() {
   return _stripe;
 }
 
-const UPGRADE_PRICE_USD = 100; // Stripe uses cents → $1.00
+const UPGRADE_PRICE_CENTS = 100; // $1.00
 
 // ── Create Checkout session ──────────────────────────────────────────────────
 router.post('/create-session', requireAuth, async (req, res) => {
   const { accountId, name } = req.session;
-  const { successUrl, cancelUrl } = req.body;
+  const { cancelUrl } = req.body;
 
-  if (!successUrl || !cancelUrl) {
-    return res.status(400).json({ error: 'successUrl and cancelUrl are required.' });
+  if (!cancelUrl) {
+    return res.status(400).json({ error: 'cancelUrl is required.' });
   }
 
   try {
-    // Check if already paid
+    // Reject if already paid
     const { rows: [acc] } = await db.query(
       'SELECT tier FROM accounts WHERE id = $1',
       [accountId]
@@ -56,7 +55,7 @@ router.post('/create-session', requireAuth, async (req, res) => {
       line_items: [{
         price_data: {
           currency: 'usd',
-          unit_amount: UPGRADE_PRICE_USD,
+          unit_amount: UPGRADE_PRICE_CENTS,
           product_data: {
             name: 'AICE Standard Broker Account',
             description: 'Upgrade from 5 Dracos free tier to O$50,000 trading capital',
@@ -65,10 +64,11 @@ router.post('/create-session', requireAuth, async (req, res) => {
         quantity: 1,
       }],
       metadata: {
-        account_id:   String(accountId),
-        broker_name:  name,
+        account_id:  String(accountId),
+        broker_name: name,
       },
-      success_url: successUrl,
+      // Stripe replaces {CHECKOUT_SESSION_ID} automatically
+      success_url: `${cancelUrl}?upgraded=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  cancelUrl,
     });
 
@@ -79,49 +79,41 @@ router.post('/create-session', requireAuth, async (req, res) => {
   }
 });
 
-// ── Stripe Webhook ───────────────────────────────────────────────────────────
-// NOTE: This route receives the raw body (set up in server.js BEFORE express.json()).
-router.post('/webhook', async (req, res) => {
-  const sig    = req.headers['stripe-signature'];
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+// ── Verify session after Stripe redirect ─────────────────────────────────────
+// Called by exchange.html when it sees ?session_id= in the URL.
+// Retrieves the session from Stripe, confirms payment_status = 'paid',
+// then upgrades the account. Idempotent — safe to call more than once.
+router.post('/verify', requireAuth, async (req, res) => {
+  const { accountId } = req.session;
+  const { sessionId }  = req.body;
 
-  if (!secret) {
-    console.error('[payment/webhook] STRIPE_WEBHOOK_SECRET not set — skipping verification');
-    return res.status(500).json({ error: 'Webhook secret not configured.' });
-  }
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is required.' });
 
-  let event;
   try {
-    const stripe = getStripe();
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, secret);
+    const stripe  = getStripe();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    // Verify this session belongs to this account
+    if (session.metadata?.account_id !== String(accountId)) {
+      return res.status(403).json({ error: 'Session does not belong to this account.' });
+    }
+
+    if (session.payment_status !== 'paid') {
+      return res.status(402).json({ error: 'Payment not completed.' });
+    }
+
+    // Upgrade — idempotent ON CONFLICT style via simple check
+    await db.query(
+      `UPDATE accounts SET tier = 'paid', cash_usd = 50000.0 WHERE id = $1 AND tier = 'free'`,
+      [accountId]
+    );
+
+    console.log(`[payment/verify] Account ${accountId} upgraded to paid tier`);
+    res.json({ ok: true, tier: 'paid', cashUsd: 50000 });
   } catch (err) {
-    console.error('[payment/webhook] signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error('[payment/verify]', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  if (event.type === 'checkout.session.completed') {
-    const session   = event.data.object;
-    const accountId = parseInt(session.metadata?.account_id, 10);
-
-    if (!accountId) {
-      console.error('[payment/webhook] No account_id in session metadata');
-      return res.status(200).json({ received: true }); // acknowledge to Stripe
-    }
-
-    try {
-      // Upgrade account: set tier = paid, cash = O$50,000
-      await db.query(
-        `UPDATE accounts SET tier = 'paid', cash_usd = 50000.0 WHERE id = $1`,
-        [accountId]
-      );
-      console.log(`[payment/webhook] Account ${accountId} upgraded to paid tier`);
-    } catch (err) {
-      console.error('[payment/webhook] DB update failed:', err.message);
-      return res.status(500).json({ error: 'DB update failed.' });
-    }
-  }
-
-  res.status(200).json({ received: true });
 });
 
 module.exports = router;
